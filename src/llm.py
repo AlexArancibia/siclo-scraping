@@ -14,83 +14,76 @@ def extract_structured_data(
     Uses an OpenAI model to parse HTML and extract a list of structured "fact documents".
     """
     prompt_template = """
-    You are a world-class data extraction agent for the fitness industry. Your sole purpose is to parse pruned HTML content from a gym's website and convert it into a structured JSON list of "fact documents".
-**Your Goal:** Extract all relevant facts about the gym's **locations, pricing, schedules, and disciplines**. For each fact you find, you MUST generate a single JSON object containing both a structured `metadata` block and an unstructured `content` summary. The gym name is '{gym_name}'.
-**Your Instructions:**
-1. You will receive the `page_url`, the `url_type` (e.g., "pricing", "locations", "schedules", "homepage/general"), and the pruned `html_content`.
-2. The `url_type` is a strong hint about the primary content on the page. If the type is "homepage/general", you must look for ALL types of information.
-3. You MUST return a JSON list of fact objects.
-4. For EACH fact object, you MUST generate a `content` field. This should be a single, concise English sentence summarizing the structured data in the `metadata`. This is essential for search.
-5. You MUST populate the `metadata` with the structured data you extract. All fields are optional; only include what you can confidently find.
-6. If after analyzing the HTML, you find NO relevant information, you MUST return an empty list `[]`. Do not invent or hallucinate data.
-
-**Example 1: Input from a 'pricing' URL**
-**page_url:** "[https://gym.com/planes](https://gym.com/planes)" **url_type:** "pricing" **html_content:** '''
-### Plan Mensual
+You are a world-class data extraction agent for the fitness industry. Your sole purpose is to parse pruned HTML content from a gym's website and convert it into a structured JSON object.
+Your Goal: Extract all relevant facts about the gym's locations, pricing, schedules, and disciplines. For each fact you find, you MUST generate a single JSON object containing both a structured metadata block and an unstructured content summary. The gym name is '{gym_name}'.
+Your Instructions:
+You will receive the page_url, the url_type (e.g., "pricing", "locations", "homepage/general"), and the pruned html_content.
+The url_type suggests the primary content, but you MUST be opportunistic. Always scan the entire HTML for any facts related to locations, pricing, schedules, or disciplines, regardless of the url_type.
+You MUST return a JSON object with a single key, "extracted_data", which contains a list of fact objects.
+For EACH fact object, you MUST generate a content field. This should be a single, concise English sentence summarizing the structured data in the metadata.
+You MUST populate the metadata with the structured data you extract. All fields are optional; only include what you can confidently find.
+If after analyzing the HTML, you find NO relevant information, you MUST return {{"extracted_data": []}}.
+ 
+Example 1: Input from a 'pricing' URL
+page_url: "https://gym.com/planes" url_type: "pricing" html_content: '''
+Plan Mensual
 Acceso Total. S/ 180 por mes.
 Compromiso 6 meses.
-### Clase Suelta
-S/ 45
 '''
-**Your Output:**``` json
-[
-  {{
-    "gym_name": "{gym_name}",
-    "source_url": "https://gym.com/planes",
-    "content": "A monthly all-access plan is available for S/ 180 per month, with a 6-month commitment.",
-    "metadata": {{
-      "data_type": "pricing",
-      "location_district": null,
-      "price_value": 180.0,
-      "price_currency": "PEN",
-      "plan_type": "monthly",
-      "plan_duration_months": 6
+Your Output:``` json
+{{
+  "extracted_data": [
+    {{
+      "gym_name": "{gym_name}",
+      "source_url": "https://gym.com/planes",
+      "content": "A monthly all-access plan is available for S/ 180 per month, with a 6-month commitment.",
+      "metadata": {{
+        "data_type": "pricing",
+        "price_value": 180.0,
+        "price_currency": "PEN",
+        "plan_type": "monthly"
+      }}
     }}
-  }},
-  {{
-    "gym_name": "{gym_name}",
-    "source_url": "https://gym.com/planes",
-    "content": "A single drop-in class costs S/ 45.",
-    "metadata": {{
-      "data_type": "pricing",
-      "location_district": null,
-      "price_value": 45.0,
-      "price_currency": "PEN",
-      "plan_type": "per_class",
-      "plan_duration_months": null
-    }}
-  }}
-]
+  ]
+}}
 ```
 
  
-Example 2: Input from a 'schedules' URL
-page_url: "https://siclo.com/pe/sedes/miraflores/horarios" url_type: "schedules" html_content: '''
-Horarios para Miraflores
-Lunes
-Yoga
-Ana
-7:00 PM - 8:00 PM
+Example 2: Mixed Content on a 'locations' URL (NEW EXAMPLE)
+page_url: "https://gym.com/sedes/miraflores" url_type: "locations" html_content: '''
+Sede Miraflores
+Av. Larco 123, Miraflores, Lima
+Oferta Especial Online!
+Plan Anual: S/ 1500
 '''
 Your Output:``` json
-[
-  {{
-    "gym_name": "Síclo",
-    "source_url": "https://siclo.com/pe/sedes/miraflores/horarios",
-    "content": "At the Miraflores location, Ana teaches a Yoga class on Mondays from 7:00 PM to 8:00 PM.",
-    "metadata": {{
-      "data_type": "schedule",
-      "location_district": "Miraflores",
-      "discipline": "Yoga",
-      "day_of_week": "Monday",
-      "start_time": "19:00",
-      "end_time": "20:00",
-      "instructor": "Ana"
+{{
+  "extracted_data": [
+    {{
+      "gym_name": "{gym_name}",
+      "source_url": "https://gym.com/sedes/miraflores",
+      "content": "The Miraflores location is at Av. Larco 123, Miraflores, Lima.",
+      "metadata": {{
+        "data_type": "location",
+        "location_address": "Av. Larco 123, Miraflores, Lima",
+        "location_district": "Miraflores"
+      }}
+    }},
+    {{
+      "gym_name": "{gym_name}",
+      "source_url": "https://gym.com/sedes/miraflores",
+      "content": "An annual plan is available at this location for S/ 1500.",
+      "metadata": {{
+        "data_type": "pricing",
+        "location_district": "Miraflores",
+        "price_value": 1500.0,
+        "price_currency": "PEN",
+        "plan_type": "annual"
+      }}
     }}
-  }}
-]
+  ]
+}}
 ```
-
  
 Example 3: No relevant data found
 page_url: "https://gym.com/blog/noticias" url_type: "general" html_content: '''
@@ -98,12 +91,16 @@ Nuestro Blog
 Entérate de las últimas noticias del mundo fitness.
 '''
 Your Output:``` json
-[]
+{{
+  "extracted_data": []
+}}
 ```
-**End of Examples. Now, complete the real task.**
-**Task:** Analyze the following inputs and generate the list of fact documents.
-**page_url:** "{page_url}" **url_type:** "{url_type}" **html_content:** ''' {html_content} '''
-**Your Output:**
+
+ 
+End of Examples. Now, complete the real task.
+Task: Analyze the following inputs and generate the list of fact documents.
+page_url: "{page_url}" url_type: "{url_type}" html_content: ''' {html_content} '''
+Your Output:
 """
     # Using .format() requires escaping the JSON braces with {{ and }}
     # But for the placeholder {html_content}, we use single braces.
@@ -135,16 +132,23 @@ Your Output:``` json
 
         parsed_json = json.loads(response_content)
 
-        if isinstance(parsed_json, dict):
-            print(f"     ✅ Extracted single fact.")
-            return [parsed_json]
+        data = parsed_json.get("extracted_data")
+        if data is None:
+            print("     ⚠️ 'extracted_data' key not found in response.")
+            return []
 
-        # If the top-level object is the list itself (less common but possible)
-        if isinstance(parsed_json, list):
-            print(f"     ✅ Extracted {len(parsed_json)} facts.")
-            return parsed_json
+            # If the model correctly returned a list, use it.
+            if isinstance(data, list):
+                print(f"     ✅ Extracted {len(data)} facts.")
+                return data
 
-        return []  # Return empty if no list is found
+            # If the model mistakenly returned a single object, wrap it in a list.
+            if isinstance(data, dict):
+                print("     ⚠️ Model returned a single object, wrapping it in a list.")
+                return [data]
+
+            # If it's something else, return empty.
+            return []
 
     except Exception as e:
         print(f"     ❌ An error occurred calling OpenAI: {e}")

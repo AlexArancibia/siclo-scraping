@@ -3,104 +3,136 @@ import json
 from typing import Dict, List, Dict, Any
 
 
+def _sanitize_and_generate_content(facts: List[Dict], category: str) -> List[Dict]:
+    """
+    Una función interna para sanitizar los hechos y generar el campo de contenido si falta.
+    Esta es nuestra red de seguridad contra las inconsistencias del LLM.
+    """
+    sanitized_facts = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue  # Ignorar elementos que no son diccionarios
+
+        # Si 'content_para_busqueda' falta o está vacío, lo generamos
+        if not fact.get("content_para_busqueda"):
+            print(f"     🛠️ Generando 'content_para_busqueda' faltante para un hecho de '{category}'.")
+            summary_parts = []
+            if category == "ubicaciones":
+                summary_parts.append(f"La sede se encuentra en {fact.get('direccion_completa', 'dirección no especificada')}")
+                if fact.get('distrito'):
+                    summary_parts.append(f"en el distrito de {fact.get('distrito')}.")
+            elif category == "precios":
+                summary_parts.append(f"Se ofrece un plan '{fact.get('descripcion_plan', 'no especificado')}'")
+                if fact.get('valor') is not None:
+                    summary_parts.append(f"por {fact.get('valor')} {fact.get('moneda', '')}.")
+            elif category == "horarios":
+                 summary_parts.append(f"La clase '{fact.get('nombre_clase', 'no especificada')}' es impartida por {fact.get('instructor', 'instructor no especificado')}")
+                 if fact.get('dia_semana'):
+                    summary_parts.append(f"el día {fact.get('dia_semana')} de {fact.get('hora_inicio', '')} a {fact.get('hora_fin', '')}.")
+            else: # Fallback genérico
+                summary_parts.append(f"Dato de tipo '{category}': " + ", ".join([f"{k}: {v}" for k, v in fact.items() if k != 'content_para_busqueda' and v]))
+
+            fact["content_para_busqueda"] = " ".join(summary_parts).strip()
+
+        sanitized_facts.append(fact)
+    return sanitized_facts
+
+
 def extract_structured_data(
         client: openai.OpenAI,
         page_url: str,
         url_type: str,
         html_content: str,
         gym_name: str
-) -> List[Dict[str, Any]]:
+) -> Dict[str, List[Dict[str, Any]]]:
     """
     Uses an OpenAI model to parse HTML and extract a list of structured "fact documents".
     """
     prompt_template = """
-You are a world-class data extraction agent for the fitness industry. Your sole purpose is to parse pruned HTML content from a gym's website and convert it into a structured JSON object.
-Your Goal: Extract all relevant facts about the gym's locations, pricing, schedules, and disciplines. For each fact you find, you MUST generate a single JSON object containing both a structured metadata block and an unstructured content summary. The gym name is '{gym_name}'.
-Your Instructions:
-You will receive the page_url, the url_type (e.g., "pricing", "locations", "homepage/general"), and the pruned html_content.
-The url_type suggests the primary content, but you MUST be opportunistic. Always scan the entire HTML for any facts related to locations, pricing, schedules, or disciplines, regardless of the url_type.
-You MUST return a JSON object with a single key, "extracted_data", which contains a list of fact objects.
-For EACH fact object, you MUST generate a content field. This should be a single, concise English sentence summarizing the structured data in the metadata.
-You MUST populate the metadata with the structured data you extract. All fields are optional; only include what you can confidently find.
-If after analyzing the HTML, you find NO relevant information, you MUST return {{"extracted_data": []}}.
- 
-Example 1: Input from a 'pricing' URL
-page_url: "https://gym.com/planes" url_type: "pricing" html_content: '''
-Plan Mensual
-Acceso Total. S/ 180 por mes.
-Compromiso 6 meses.
+``` text
+Eres un agente de extracción de datos de clase mundial para la industria del fitness, especializado en convertir contenido web en registros estructurados para una base de datos PostgreSQL que utiliza pgvector.
+
+**Tu Objetivo:**
+Analizar el contenido HTML de la página de un gimnasio y extraer rigurosamente toda la información sobre **ubicaciones, precios, horarios y disciplinas**.
+
+**Tus Instrucciones Clave:**
+1.  **Idioma de Salida:** Todo el texto extraído DEBE estar en **español**.
+2.  **Estructura de Salida:** Debes devolver un único objeto JSON con claves de nivel superior que se mapean a tablas: `"ubicaciones"`, `"precios"`, `"horarios"`, `"disciplinas"`.
+3.  **Requisito Híbrido (¡MUY IMPORTANTE!):** Para CADA objeto individual que extraigas, DEBES generar dos cosas:
+    a) Un campo `"content_para_busqueda"`: Una única oración concisa y en lenguaje natural que resuma la información del objeto. Este campo es esencial para la búsqueda por vectores.
+    b) Los campos de datos estructurados (`snake_case`) que se mapearán a las columnas de la base de datos.
+4.  **Búsqueda Oportunista:** La `url_type` es una pista, pero DEBES escanear todo el HTML en busca de CUALQUIER tipo de dato relevante en cada página.
+5.  **Caso Vacío:** Si no encuentras información para una categoría, devuelve una lista vacía `[]` para esa clave.
+
+**Definición de Esquemas (Schemas):**
+*   **Para `"ubicaciones"`:** `{{"content_para_busqueda": str, "direccion_completa": str, "distrito": str}}`
+*   **Para `"precios"`:** `{{"content_para_busqueda": str, "descripcion_plan": str, "valor": float, "moneda": str, "recurrencia": str}}`
+*   **Para `"horarios"`:** `{{"content_para_busqueda": str, "sede": str, "nombre_clase": str, "instructor": str, "dia_semana": str, "hora_inicio": str, "hora_fin": str}}`
+*   **Para `"disciplinas"`:** `{{"content_para_busqueda": str, "nombre": str, "descripcion_corta": str}}`
+
+---
+**Ejemplo 1: Contenido Mixto en una URL de 'ubicaciones'**
+
+**page_url:** "https://gym.com/sedes/miraflores"
+**url_type:** "locations"
+**html_content:** '''
+  <h2>Nuestra Sede en Miraflores</h2>
+  <p>Encuéntranos en Av. Larco 123, Miraflores, Lima.</p>
+  <h3>¡Oferta de Apertura!</h3>
+  <p>Plan Anual Exclusivo: S/ 1500</p>
 '''
-Your Output:``` json
+
+**Tu Salida:**
+```json
 {{
-  "extracted_data": [
+  "ubicaciones": [
     {{
-      "gym_name": "{gym_name}",
-      "source_url": "https://gym.com/planes",
-      "content": "A monthly all-access plan is available for S/ 180 per month, with a 6-month commitment.",
-      "metadata": {{
-        "data_type": "pricing",
-        "price_value": 180.0,
-        "price_currency": "PEN",
-        "plan_type": "monthly"
-      }}
+      "content_para_busqueda": "La sede de Miraflores se encuentra en Av. Larco 123, Miraflores, Lima.",
+      "direccion_completa": "Av. Larco 123, Miraflores, Lima",
+      "distrito": "Miraflores"
     }}
-  ]
+  ],
+  "precios": [
+    {{
+      "content_para_busqueda": "Se ofrece un Plan Anual Exclusivo por S/ 1500 en esta sede.",
+      "descripcion_plan": "Plan Anual Exclusivo",
+      "valor": 1500.0,
+      "moneda": "PEN",
+      "recurrencia": "anual"
+    }}
+  ],
+  "horarios": [],
+  "disciplinas": []
 }}
+```
+---
+**Ejemplo 2: Sin datos relevantes**
+
+**page_url:** "https://gym.com/blog/noticias"
+**url_type:** "general"
+**html_content:** '''
+  <h1>Nuestro Blog</h1>
+  <p>Lee las últimas noticias del mundo fitness.</p>
+'''
+
+**Tu Salida:**
 ```
 
- 
-Example 2: Mixed Content on a 'locations' URL (NEW EXAMPLE)
-page_url: "https://gym.com/sedes/miraflores" url_type: "locations" html_content: '''
-Sede Miraflores
-Av. Larco 123, Miraflores, Lima
-Oferta Especial Online!
-Plan Anual: S/ 1500
+json {{ "ubicaciones": [], "precios": [], "horarios": [], "disciplinas": [] }}``` 
+---
+**Fin de los Ejemplos. Ahora, completa la tarea real.**
+
+**Tarea:** Analiza las siguientes entradas y genera el objeto JSON estructurado.
+
+**page_url:** "{page_url}"
+**url_type:** "{url_type}"
+**html_content:** '''
+{html_content}
 '''
-Your Output:``` json
-{{
-  "extracted_data": [
-    {{
-      "gym_name": "{gym_name}",
-      "source_url": "https://gym.com/sedes/miraflores",
-      "content": "The Miraflores location is at Av. Larco 123, Miraflores, Lima.",
-      "metadata": {{
-        "data_type": "location",
-        "location_address": "Av. Larco 123, Miraflores, Lima",
-        "location_district": "Miraflores"
-      }}
-    }},
-    {{
-      "gym_name": "{gym_name}",
-      "source_url": "https://gym.com/sedes/miraflores",
-      "content": "An annual plan is available at this location for S/ 1500.",
-      "metadata": {{
-        "data_type": "pricing",
-        "location_district": "Miraflores",
-        "price_value": 1500.0,
-        "price_currency": "PEN",
-        "plan_type": "annual"
-      }}
-    }}
-  ]
-}}
-```
- 
-Example 3: No relevant data found
-page_url: "https://gym.com/blog/noticias" url_type: "general" html_content: '''
-Nuestro Blog
-Entérate de las últimas noticias del mundo fitness.
-'''
-Your Output:``` json
-{{
-  "extracted_data": []
-}}
+
+**Tu Salida:**
 ```
 
- 
-End of Examples. Now, complete the real task.
-Task: Analyze the following inputs and generate the list of fact documents.
-page_url: "{page_url}" url_type: "{url_type}" html_content: ''' {html_content} '''
-Your Output:
 """
     # Using .format() requires escaping the JSON braces with {{ and }}
     # But for the placeholder {html_content}, we use single braces.
@@ -128,27 +160,27 @@ Your Output:
         # Sometimes the model might wrap the list in a key, e.g., {"data": [...]}.
         # We need to robustly extract the list.
         if not response_content:
-            return []
+            return {}
 
         parsed_json = json.loads(response_content)
 
-        data = parsed_json.get("extracted_data")
-        if data is None:
-            print("     ⚠️ 'extracted_data' key not found in response.")
-            return []
+        sanitized_output = {}
+        for category in ["ubicaciones", "precios", "horarios", "disciplinas"]:
+            if category in parsed_json and isinstance(parsed_json[category], list):
+                # Pasa la lista de hechos a través de nuestra red de seguridad
+                sanitized_facts = _sanitize_and_generate_content(parsed_json[category], category)
+                sanitized_output[category] = sanitized_facts
+            else:
+                # Asegurarse de que la clave siempre exista, incluso si está vacía
+                sanitized_output[category] = []
 
-            # If the model correctly returned a list, use it.
-            if isinstance(data, list):
-                print(f"     ✅ Extracted {len(data)} facts.")
-                return data
+        print("     ✅ Sanitization complete.")
+        return sanitized_output
+        # --- FIN DE LA NUEVA LÓGICA ---
 
-            # If the model mistakenly returned a single object, wrap it in a list.
-            if isinstance(data, dict):
-                print("     ⚠️ Model returned a single object, wrapping it in a list.")
-                return [data]
-
-            # If it's something else, return empty.
-            return []
+    except Exception as e:
+        print(f"     ❌ An error occurred calling OpenAI: {e}")
+        return {"ubicaciones": [], "precios": [], "horarios": [], "disciplinas": []}
 
     except Exception as e:
         print(f"     ❌ An error occurred calling OpenAI: {e}")

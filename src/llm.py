@@ -453,11 +453,12 @@ lo más precisa posible (calle, número, distrito, ciudad). Asumir que no es pro
         ],
         response_format={"type": "json_object"},
         temperature=0.1,
-        max_tokens=5000,
+        max_tokens=10_000,
     )
 
     text_output = response.choices[0].message.content.strip()
-
+    if not text_output.strip().endswith(']') and not text_output.strip().endswith('}'):
+        print("⚠️ Output truncated, requesting continuation...")
     try:
         return json.loads(text_output)
     except json.JSONDecodeError:

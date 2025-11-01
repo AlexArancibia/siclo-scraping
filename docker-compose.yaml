@@ -1,0 +1,22 @@
+name: gym-scraping
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg13
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - gym-scraping-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres" ]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+
+volumes:
+  gym-scraping-db:

@@ -6,11 +6,12 @@ from playwright.sync_api import sync_playwright, Page
 from selectolax.parser import HTMLParser
 
 from sitemap_utils import get_filtered_sitemap_urls
+from src.db_utils import bulk_insert, get_connection
 from src.llm import categorize_urls_with_llm, extract_structured_data, merge_gym_data_with_llm
 
 pages_to_scrape = {
-    # "bioritmo": "https://www.bioritmo.com.pe/",
-    # "limayoga": "https://limayoga.com/",
+    "bioritmo": "https://www.bioritmo.com.pe/",
+    "limayoga": "https://limayoga.com/",
     "nasceyoga": "https://www.nasceyoga.com/",
     "zendayoga": "https://www.zendayoga.com/",
     "matmax": "https://matmax.world/",
@@ -98,7 +99,7 @@ def prune_html_for_llm(html_content: str, keywords: list[str] = None) -> tuple[s
     """
     tree = HTMLParser(html_content)
 
-    # 1️⃣ Intentar aislar contenedor principal
+    # Intentar aislar contenedor principal
     main_container = None
     if tree.body:
         main_container = tree.body.css_first('main')
@@ -119,13 +120,13 @@ def prune_html_for_llm(html_content: str, keywords: list[str] = None) -> tuple[s
     if not root_node:
         return "", []
 
-    # 2️⃣ Remover ruido visual / irrelevante
+    # Remover ruido visual / irrelevante
     noise_tags = ['script', 'style', 'svg', 'nav', 'footer', 'header']
     for tag in noise_tags:
         for node in root_node.css(tag):
             node.decompose()
 
-    # 3️⃣ Extraer tablas como texto legible
+    # Extraer tablas como texto legible
     table_texts = []
     for table in root_node.css('table'):
         rows = []
@@ -137,49 +138,20 @@ def prune_html_for_llm(html_content: str, keywords: list[str] = None) -> tuple[s
             table_texts.append("\n".join(rows))
         table.decompose()  # eliminar tabla del HTML principal (para no duplicar)
 
-    # 4️⃣ Eliminar todos los atributos de los nodos
+    # Eliminar todos los atributos de los nodos
     for node in root_node.css("*"):
         if node.attributes:
             node.attributes.clear()
 
-    # 5️⃣ Obtener HTML limpio
+    # obtener HTML limpio
     html_clean = root_node.html
 
-    # 6️⃣ Compactar espacios y saltos de línea
+    # Compactar espacios y saltos de línea
     html_clean = re.sub(r'\n+', '\n', html_clean)
     html_clean = re.sub(r'\s+', ' ', html_clean)
     html_clean = html_clean.strip()
 
     return html_clean, table_texts
-
-
-
-def _get_item_key(item: dict, category: str) -> tuple | None:
-    # ... (código de la respuesta anterior)
-    if category == "ubicaciones":
-        key_parts = (item.get("distrito"), item.get("direccion_completa"))
-        return key_parts if all(key_parts) else None
-    elif category == "precios":
-        key_parts = (item.get("descripcion_plan"), item.get("valor"), item.get("recurrencia"))
-        return key_parts if all(key_parts) else None
-    elif category == "horarios":
-        key_parts = (item.get("sede"), item.get("nombre_clase"), item.get("dia_semana"), item.get("hora_inicio"))
-        return key_parts if all(key_parts) else None
-    elif category == "disciplinas":
-        key_parts = (item.get("nombre"),)
-        return key_parts if all(key_parts) else None
-    return None
-
-def _merge_items(existing_item: dict, new_item: dict) -> dict:
-    # ... (código de la respuesta anterior)
-    score_existing = sum(1 for v in existing_item.values() if v)
-    score_new = sum(1 for v in new_item.values() if v)
-    if score_new > score_existing:
-        return new_item
-    elif score_new == score_existing:
-        if len(new_item.get("content_para_busqueda", "")) > len(existing_item.get("content_para_busqueda", "")):
-            return new_item
-    return existing_item
 
 
 def scrape_single_url(client: openai.OpenAI, page: Page, url: str, url_type: str, gym_name: str):
@@ -251,6 +223,8 @@ def main():
                     page.close()
             print(chunked_data)
             merged_gym_data = merge_gym_data_with_llm(gym_name, chunked_data, client)
+            conn = get_connection()
+            bulk_insert(conn, gym_name, merged_gym_data)
         browser.close()
     print("Scraping complete.")
 

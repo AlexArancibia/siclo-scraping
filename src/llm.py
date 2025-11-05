@@ -154,6 +154,7 @@ Distingue **horarios de atención del establecimiento** (por ejemplo, "Lunes a V
 - Colocar horarios siempre en formato de 24 horas
 - Si se tiene la información disponible, colocar el campo `fecha` en formato DD-MM-YYYY. Puede aceptarse DD-MM. Si no es posible obtener una fecha exacta, dejar vacío.
 - Usa los campos **lastmod** y **changefreq** que se brindarán al final del contenido HTML, así como la fecha actual (formato DD-MM-YYYY), para poder inferir la fecha, de ser necesario.
+- Obtener la hora de fin a partir de la duración de la sesión si está disponible.
 ---
 
 ### 🧩 Esquemas Esperados
@@ -168,7 +169,7 @@ Distingue **horarios de atención del establecimiento** (por ejemplo, "Lunes a V
   `{{"content_para_busqueda": str, "sede": str, "nombre_clase": str, "instructor": str, "fecha": str, "dia_semana": str, "hora_inicio": str, "hora_fin": str}}`
 
 * **Para `"disciplinas"`:**  
-  `{{"content_para_busqueda": str, "nombre": str, "descripcion_corta": str}}`
+  `{{"content_para_busqueda": str, "nombre": str, "descripcion": str}}`
 
 ---
 
@@ -281,22 +282,22 @@ Distingue **horarios de atención del establecimiento** (por ejemplo, "Lunes a V
     {{
       "content_para_busqueda": "Yoga: mejora la flexibilidad y la conexión mente-cuerpo.",
       "nombre": "Yoga",
-      "descripcion_corta": "Mejora la flexibilidad y la conexión mente-cuerpo."
+      "descripcion": "Mejora la flexibilidad y la conexión mente-cuerpo."
     }},
     {{
       "content_para_busqueda": "Pilates: fortalece el core y mejora la postura.",
       "nombre": "Pilates",
-      "descripcion_corta": "Fortalece el core y mejora la postura."
+      "descripcion": "Fortalece el core y mejora la postura."
     }},
     {{
       "content_para_busqueda": "Spinning: disciplina cardiovascular en bicicleta estática.",
       "nombre": "Spinning",
-      "descripcion_corta": "Entrenamiento cardiovascular en bicicleta estática."
+      "descripcion": "Entrenamiento cardiovascular en bicicleta estática."
     }},
     {{
       "content_para_busqueda": "Entrenamiento Funcional: mejora la fuerza general con movimientos naturales.",
       "nombre": "Entrenamiento Funcional",
-      "descripcion_corta": "Mejora la fuerza general con movimientos naturales."
+      "descripcion": "Mejora la fuerza general con movimientos naturales."
     }}
   ]
 }}
@@ -343,7 +344,7 @@ Analiza las siguientes entradas y genera el objeto JSON estructurado.
     try:
         print(f"     Calling OpenAI to extract data from {page_url}...")
         completion = client.chat.completions.create(
-            model="gpt-4.1-mini" if has_schedule_info else "gpt-5-nano",
+            model="gpt-5-mini" if has_schedule_info else "gpt-5-nano",
             messages=[{"role": "user", "content": full_prompt}],
             # IMPORTANT: Use JSON mode to guarantee valid JSON output
             response_format={"type": "json_object"}
@@ -515,7 +516,8 @@ Fusiona todas las entradas de distintas URLs en **un solo objeto JSON unificado*
 
 1. **Integridad:** No pierdas información relevante de ningún fragmento.
 2. **Consistencia:** Unifica formato, tipos de datos y nombres de sedes.
-3. **Deduplicación:** Si varias URLs repiten la misma sede o dirección, mantenla solo una vez.
+3. **Deduplicación:** Si varias URLs repiten la misma sede o dirección, mantenla solo una vez. Múltiples disciplinas también 
+deben ser unidas en una sola, si es posible combinando las descripciones en una sola, consistente.
 4. **Vinculación:** Asegura que cada precio y horario tenga un campo `"sede"` coherente.
 5. **Idioma:** Devuelve todos los textos en español natural.
 6. **Trazabilidad:** No incluyas las URLs en la salida final.

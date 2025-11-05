@@ -2,18 +2,20 @@ import logging
 import os
 import re
 import locale
+from math import lgamma
+
 import openai
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Page
 from bs4 import BeautifulSoup
 from sitemap_utils import get_filtered_sitemap_urls
-from src.db_utils import bulk_insert, get_connection
+from src.db_utils import bulk_insert, get_connection, init_db
 from src.llm import categorize_urls_with_llm, extract_structured_data, merge_gym_data_with_llm
 
 pages_to_scrape = {
-    # "bioritmo": "https://www.bioritmo.com.pe/",
-    # "limayoga": "https://limayoga.com/",
-    # "nasceyoga": "https://www.nasceyoga.com/",
+    "bioritmo": "https://www.bioritmo.com.pe/",
+    "limayoga": "https://limayoga.com/",
+    "nasceyoga": "https://www.nasceyoga.com/",
     "zendayoga": "https://www.zendayoga.com/",
     "matmax": "https://matmax.world/",
     "anjali": "https://anjali.pe/",
@@ -200,7 +202,10 @@ def scrape_single_url(client: openai.OpenAI, page: Page, url: dict[str, str], ur
 
 
 def main():
-    load_dotenv("../.env")
+    if not os.getenv("OPENAI_API_KEY"):
+        load_dotenv("../.env")  # local dev
+    with get_connection() as conn:
+        init_db(conn)
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
@@ -211,10 +216,27 @@ def main():
     except:
         locale.setlocale(locale.LC_TIME, "es_ES")
     custom_urls_env = os.getenv("SCRAPE_URLS")
+    if custom_urls_env:
+        try:
+            # Ejemplo: "bioritmo:https://bioritmo.com/,zendayoga:https://zendayoga.com/"
+            pairs = [pair.strip() for pair in custom_urls_env.split(",") if pair.strip()]
+            pages_to_scrape_used = {}
+            for pair in pairs:
+                if ":" not in pair:
+                    logging.warning(f"⚠️ Invalid entry (missing colon): {pair}")
+                    continue
+                name, url = pair.split(":", 1)
+                pages_to_scrape_used[name.strip()] = url.strip()
+            logging.info(f"⚙️ Using URLs from environment: {pages_to_scrape}")
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to parse SCRAPE_URLS: {e}")
+            pages_to_scrape_used = pages_to_scrape
+    else:
+        pages_to_scrape_used = pages_to_scrape
     client = openai.Client()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        for gym_name, site_url in pages_to_scrape.items():
+        for gym_name, site_url in pages_to_scrape_used.items():
             logging.info(f"Scraping {site_url}")
             urls_to_scrape = get_filtered_sitemap_urls(site_url)
             logging.info(f"URLs obtained: {urls_to_scrape}")

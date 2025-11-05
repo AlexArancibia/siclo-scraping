@@ -1,4 +1,6 @@
 import os
+from zipapp import create_archive
+
 import psycopg2
 from psycopg2.extras import execute_batch
 from dotenv import load_dotenv
@@ -13,6 +15,75 @@ def get_connection():
         host=os.getenv("PGHOST"),
         port=os.getenv("PGPORT", 5432),
     )
+
+
+def init_db(conn):
+    """
+    Creates the required tables if they don't exist.
+    """
+    create_tables = """
+    CREATE TABLE IF NOT EXISTS gimnasios
+    (
+        id SERIAL PRIMARY KEY,
+        gym_name TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS disciplinas
+    (
+        id SERIAL PRIMARY KEY,
+        gym_id INTEGER NOT NULL,
+        nombre TEXT,
+        descripcion TEXT,
+        FOREIGN KEY (gym_id) REFERENCES gimnasios (id)
+        ON UPDATE NO ACTION
+        ON DELETE NO ACTION
+    );
+    CREATE TABLE IF NOT EXISTS horarios
+    (
+        id SERIAL PRIMARY KEY,
+        gym_id INTEGER NOT NULL,
+        sede TEXT,
+        nombre_clase TEXT,
+        fecha TEXT,
+        dia_semana TEXT,
+        hora_inicio TEXT,
+        duracion TEXT,
+        FOREIGN KEY (gym_id) REFERENCES gimnasios (id)
+        ON UPDATE NO ACTION
+        ON DELETE NO ACTION
+    );
+    CREATE TABLE IF NOT EXISTS precios
+    (
+        id SERIAL PRIMARY KEY,
+        gym_id INTEGER NOT NULL,
+        content_para_busqueda TEXT,
+        sede TEXT,
+        descripcion_plan TEXT,
+        valor DOUBLE PRECISION,
+        moneda TEXT,
+        recurrencia TEXT,
+        FOREIGN KEY (gym_id) REFERENCES gimnasios (id)
+        ON UPDATE NO ACTION
+        ON DELETE NO ACTION
+    );
+    CREATE TABLE IF NOT EXISTS ubicaciones
+    (
+        id SERIAL PRIMARY KEY,
+        gym_id INTEGER NOT NULL,
+        content_para_busqueda TEXT,
+        direccion_completa TEXT,
+        distrito TEXT,
+        horario_atencion TEXT,
+        FOREIGN KEY (gym_id) REFERENCES gimnasios (id)
+        ON UPDATE NO ACTION
+        ON DELETE NO ACTION
+    );
+    """
+
+    with conn.cursor() as cur:
+        cur.execute(create_tables)
+        conn.commit()
+        print("✅ Tables ensured successfully")
 
 
 def get_or_create_gym_id(conn, gym_name: str) -> int:
@@ -42,12 +113,12 @@ def bulk_insert(conn, gym_name: str, merged_data: dict):
     with conn.cursor() as cur:
         # Ubicaciones
         ubicaciones_data = [
-            (gym_id, u.get("content_para_busqueda"), u.get("direccion_completa"), u.get("distrito"))
+            (gym_id, u.get("content_para_busqueda"), u.get("direccion_completa"), u.get("distrito"), u.get("horario_atencion"))
             for u in merged_data.get("ubicaciones", [])
         ]
         execute_batch(cur, """
-            INSERT INTO ubicaciones (gym_id, content_para_busqueda, direccion_completa, distrito)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO ubicaciones (gym_id, content_para_busqueda, direccion_completa, distrito, horario_atencion)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING;
         """, ubicaciones_data)
 
@@ -69,8 +140,8 @@ def bulk_insert(conn, gym_name: str, merged_data: dict):
             for h in merged_data.get("horarios", [])
         ]
         execute_batch(cur, """
-            INSERT INTO horarios (gym_id, sede, nombre_clase, fecha, dia_semana, hora_inicio, hora_fin)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO horarios (gym_id, sede, nombre_clase, instructor, fecha, dia_semana, hora_inicio, hora_fin)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING;
         """, horarios_data)
 

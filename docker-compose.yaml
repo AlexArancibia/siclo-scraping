@@ -17,6 +17,12 @@ services:
       start_period: 5s
     restart: always
 
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.docker
 
 volumes:
   gym-scraping-db:

@@ -1,5 +1,4 @@
 import os
-from zipapp import create_archive
 
 import psycopg2
 from psycopg2.extras import execute_batch
@@ -34,6 +33,7 @@ def init_db(conn):
         gym_id INTEGER NOT NULL,
         nombre TEXT,
         descripcion TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
         FOREIGN KEY (gym_id) REFERENCES gimnasios (id)
         ON UPDATE NO ACTION
         ON DELETE NO ACTION
@@ -44,10 +44,12 @@ def init_db(conn):
         gym_id INTEGER NOT NULL,
         sede TEXT,
         nombre_clase TEXT,
+        instructor TEXT,
         fecha TEXT,
         dia_semana TEXT,
         hora_inicio TEXT,
-        duracion TEXT,
+        hora_fin TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
         FOREIGN KEY (gym_id) REFERENCES gimnasios (id)
         ON UPDATE NO ACTION
         ON DELETE NO ACTION
@@ -62,6 +64,7 @@ def init_db(conn):
         valor DOUBLE PRECISION,
         moneda TEXT,
         recurrencia TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
         FOREIGN KEY (gym_id) REFERENCES gimnasios (id)
         ON UPDATE NO ACTION
         ON DELETE NO ACTION
@@ -74,6 +77,7 @@ def init_db(conn):
         direccion_completa TEXT,
         distrito TEXT,
         horario_atencion TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
         FOREIGN KEY (gym_id) REFERENCES gimnasios (id)
         ON UPDATE NO ACTION
         ON DELETE NO ACTION
@@ -136,7 +140,7 @@ def bulk_insert(conn, gym_name: str, merged_data: dict):
 
         # Horarios
         horarios_data = [
-            (gym_id, h.get("sede"), h.get("nombre_clase"), h.get("fecha"), h.get("dia_semana"), h.get("hora_inicio"), h.get("hora_fin"))
+            (gym_id, h.get("sede"), h.get("nombre_clase"), h.get("instructor"), h.get("fecha"), h.get("dia_semana"), h.get("hora_inicio"), h.get("hora_fin"))
             for h in merged_data.get("horarios", [])
         ]
         execute_batch(cur, """

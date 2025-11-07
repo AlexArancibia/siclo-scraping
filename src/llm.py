@@ -22,7 +22,7 @@ def _sanitize_and_generate_content(facts: list[dict], category: str) -> list[dic
 
         # Si 'content_para_busqueda' falta o está vacío, lo generamos
         if not fact.get("content_para_busqueda"):
-            print(f"     🛠️ Generando 'content_para_busqueda' faltante para un hecho de '{category}'.")
+            logging.info(f"🛠️ Generando 'content_para_busqueda' faltante para un hecho de '{category}'.")
             summary_parts = []
             if category == "ubicaciones":
                 summary_parts.append(
@@ -342,9 +342,9 @@ Analiza las siguientes entradas y genera el objeto JSON estructurado.
     if has_schedule_info:
         logging.info("Detected schedule info, calling larger model for extraction ...")
     try:
-        print(f"     Calling OpenAI to extract data from {page_url}...")
+        logging.info(f"Calling OpenAI to extract data from {page_url}...")
         completion = client.chat.completions.create(
-            model="gpt-5-mini" if has_schedule_info else "gpt-5-nano",
+            model="gpt-5-mini-2025-08-07" if has_schedule_info else "gpt-5-nano",
             messages=[{"role": "user", "content": full_prompt}],
             # IMPORTANT: Use JSON mode to guarantee valid JSON output
             response_format={"type": "json_object"}
@@ -369,12 +369,12 @@ Analiza las siguientes entradas y genera el objeto JSON estructurado.
                 # Asegurarse de que la clave siempre exista, incluso si está vacía
                 sanitized_output[category] = []
 
-        print("     ✅ Sanitization complete.")
+        logging.info("✅ Sanitization complete.")
         return sanitized_output
         # --- FIN DE LA NUEVA LÓGICA ---
 
     except Exception as e:
-        print(f"     ❌ An error occurred calling OpenAI: {e}")
+        logging.error(f"     ❌ An error occurred calling OpenAI: {e}")
         return {"ubicaciones": [], "precios": [], "horarios": [], "disciplinas": []}
 
 
@@ -446,7 +446,7 @@ Analyze the URL path carefully. Prioritize Spanish keywords such as 'sedes', 'pr
     full_prompt = prompt_template.format(urls_json=urls_as_json_string)
 
     try:
-        print("🤖 Calling OpenAI to categorize URLs...")
+        logging.info("🤖 Calling OpenAI to categorize URLs...")
         completion = client.chat.completions.create(
             model="gpt-4o-mini",  # Use a fast, affordable model
             messages=[
@@ -457,7 +457,7 @@ Analyze the URL path carefully. Prioritize Spanish keywords such as 'sedes', 'pr
         )
 
         response_content = completion.choices[0].message.content
-        print("✅ OpenAI response received.")
+        logging.info("✅ OpenAI response received.")
 
         # Parse the response safely
         categorized_urls = json.loads(response_content)
@@ -481,7 +481,7 @@ Analyze the URL path carefully. Prioritize Spanish keywords such as 'sedes', 'pr
         return dict(final_result)
 
     except Exception as e:
-        print(f"❌ An error occurred while calling OpenAI: {e}")
+        logging.error(f"❌ An error occurred while calling OpenAI: {e}")
         return {"locations": [], "pricing": [], "schedules": [], "disciplines": []}
 
 
@@ -507,7 +507,7 @@ Eres un experto en integración y limpieza de datos para gimnasios y centros fit
 Tu tarea es combinar y deduplicar información estructurada extraída desde **múltiples páginas del gimnasio "{gym_name}"**.
 
 Cada página contiene datos parciales en formato JSON, con las claves:
-`"ubicaciones"`, `"precios"`, `"horarios"`, `"disciplinas"`.
+`"ubicaciones"`, `"precios"`, `"disciplinas"`.
 
 ---
 
@@ -516,12 +516,13 @@ Fusiona todas las entradas de distintas URLs en **un solo objeto JSON unificado*
 
 1. **Integridad:** No pierdas información relevante de ningún fragmento.
 2. **Consistencia:** Unifica formato, tipos de datos y nombres de sedes.
-3. **Deduplicación:** Si varias URLs repiten la misma sede o dirección, mantenla solo una vez. Múltiples disciplinas también 
-deben ser unidas en una sola, si es posible combinando las descripciones en una sola, consistente.
-4. **Vinculación:** Asegura que cada precio y horario tenga un campo `"sede"` coherente.
+3. **Deduplicación:** Si varias URLs repiten la misma sede o dirección, mantenla solo una vez. IMPORTANTE: Múltiples urls pueden hablar de la misma disciplina, unificar 
+en una sola disciplina, creando una descripción unida de todos los duplicados encontrados.
+4. **Vinculación:** Asegura que cada precio tenga un campo `"sede"` coherente.
 5. **Idioma:** Devuelve todos los textos en español natural.
 6. **Trazabilidad:** No incluyas las URLs en la salida final.
 7. **Localidad**: IMPORTANTE. combinar ubicaciones con descripciones similares en un solo registro. La dirección debe ser 
+lo más precisa posible (calle, número, distrito, ciudad). Asumir que no es probable que haya dos sedes en un mismo distrito o direcciones muy cercanas.
 lo más precisa posible (calle, número, distrito, ciudad). Asumir que no es probable que haya dos sedes en un mismo distrito o direcciones muy cercanas.
 
 ---
@@ -580,23 +581,21 @@ lo más precisa posible (calle, número, distrito, ciudad). Asumir que no es pro
     """
     logging.info("Merging all gym scraped information ...")
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-5-nano",
         messages=[
             {"role": "system", "content": "Eres un asistente experto en fusión y deduplicación de datos JSON."},
             {"role": "user", "content": prompt},
         ],
-        response_format={"type": "json_object"},
-        temperature=0.1,
-        max_tokens=10_000,
+        response_format={"type": "json_object"}
     )
 
     text_output = response.choices[0].message.content.strip()
     if not text_output.strip().endswith(']') and not text_output.strip().endswith('}'):
-        print("⚠️ Output truncated, requesting continuation...")
+        logging.warning("⚠️ Output truncated, requesting continuation...")
     try:
         return json.loads(text_output)
     except json.JSONDecodeError:
-        print("⚠️ El modelo devolvió texto no válido. Retornando texto crudo.")
+        logging.warning("⚠️ El modelo devolvió texto no válido. Retornando texto crudo.")
         return {"raw_output": text_output}
 
 

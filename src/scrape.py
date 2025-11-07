@@ -2,13 +2,12 @@ import logging
 import os
 import re
 import locale
-from math import lgamma
 
 import openai
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Page
 from bs4 import BeautifulSoup
-from sitemap_utils import get_filtered_sitemap_urls
+from src.sitemap_utils import get_filtered_sitemap_urls
 from src.db_utils import bulk_insert, get_connection, init_db
 from src.llm import categorize_urls_with_llm, extract_structured_data, merge_gym_data_with_llm
 
@@ -153,7 +152,7 @@ def prune_html_for_llm(html_content: str, keywords: list[str] = None) -> str:
     return html_clean
 
 
-def scrape_single_url(client: openai.OpenAI, page: Page, url: dict[str, str], url_type: str, gym_name: str):
+def scrape_single_url(client: openai.OpenAI, page: Page, url: dict[str, str], url_type: str, gym_name: str) -> dict[str, dict]:
     """
     Raspa una URL y cualquier iframe relevante que contenga
     """
@@ -211,10 +210,6 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    try:
-        locale.setlocale(locale.LC_TIME, "es_ES.UTF-8")  # Linux / macOS
-    except:
-        locale.setlocale(locale.LC_TIME, "es_ES")
     custom_urls_env = os.getenv("SCRAPE_URLS")
     if custom_urls_env:
         try:
@@ -239,6 +234,7 @@ def main():
         for gym_name, site_url in pages_to_scrape_used.items():
             logging.info(f"Scraping {site_url}")
             urls_to_scrape = get_filtered_sitemap_urls(site_url)
+            schedules = []
             logging.info(f"URLs obtained: {urls_to_scrape}")
             filtered_urls = categorize_urls_with_llm(urls_to_scrape, client)
             filtered_urls["homepage"] = [{"loc": site_url, "lastmod": None, "changefreq": None, "priority": None}]
@@ -251,12 +247,16 @@ def main():
                         # if sub_url["loc"] != 'https://www.bioritmo.com.pe/horarios-treinos/santa-cruz':
                         #     continue
                         extracted_data = scrape_single_url(client, page, sub_url, page_type, gym_name)
+                        for url, chunk_data in extracted_data.items():
+                            if chunk_data.get("horarios"):
+                                schedules.extend(chunk_data.pop("horarios"))  # separar datos de horarios para no hacer merge de estos
                         chunked_data = chunked_data | extracted_data
                 except Exception as e:
                     logging.error(e)
                 finally:
                     page.close()
             merged_gym_data = merge_gym_data_with_llm(gym_name, chunked_data, client)
+            merged_gym_data["horarios"] = schedules  # recuperar data de horarios
             conn = get_connection()
             bulk_insert(conn, gym_name, merged_gym_data)
         browser.close()

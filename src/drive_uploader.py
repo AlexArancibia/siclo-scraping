@@ -1,5 +1,4 @@
 import os
-import time
 import requests
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
@@ -60,11 +59,10 @@ if __name__ == "__main__":
     # Example usage:
     load_dotenv("../.env")
     folder_id = "1M10yylyExJjh8hbtJt7iKGxVo1CkdB2H"  # The folder you shared with your Google account
-    filename = "../example.xlsx"
+    filepath = "../example.xlsx"
     mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
     # Example: load file into memory
-    with open(filename, "rb") as f:
+    with open(filepath, "rb") as f:
         contents = f.read()
 
     res = upload_file(contents, "example.xlsx", mimetype, folder_id)

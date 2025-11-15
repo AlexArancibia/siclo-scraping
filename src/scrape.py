@@ -265,8 +265,9 @@ def main():
             # conn = get_connection()
             # bulk_insert(conn, gym_name, merged_gym_data)
         browser.close()
+        logging.info("Uploading data to Drive...")
         res = export_and_upload(df_disciplines, df_schedules, df_prices, folder_id)
-        print("Uploaded: ", res)
+        logging.info("Uploaded: ", res)
     logging.info("Scraping complete.")
 
 

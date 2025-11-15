@@ -1,12 +1,13 @@
 import logging
 import os
 import re
-import locale
 
 import openai
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Page
 from bs4 import BeautifulSoup
+
+from src.dataframes import init_dataframes, append_scraped_data, export_and_upload
 from src.sitemap_utils import get_filtered_sitemap_urls
 from src.db_utils import bulk_insert, get_connection, init_db
 from src.llm import categorize_urls_with_llm, extract_structured_data, merge_gym_data_with_llm
@@ -152,7 +153,7 @@ def prune_html_for_llm(html_content: str, keywords: list[str] = None) -> str:
     return html_clean
 
 
-def scrape_single_url(client: openai.OpenAI, page: Page, url: dict[str, str], url_type: str, gym_name: str) -> dict[str, dict]:
+def scrape_single_url(client: openai.OpenAI, page: Page, url: dict[str, str], url_type: str, gym_name: str) -> dict[str, dict[str, list]]:
     """
     Raspa una URL y cualquier iframe relevante que contenga
     """
@@ -197,7 +198,7 @@ def scrape_single_url(client: openai.OpenAI, page: Page, url: dict[str, str], ur
 
     except Exception as e:
         logging.error(f"❌ Failed to scrape main URL {url}: {e}")
-        return {"ubicaciones": [], "precios": [], "horarios": [], "disciplinas": []}
+        return {}
 
 
 def main():
@@ -210,6 +211,7 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
+    folder_id = os.getenv("FOLDER_ID")
     custom_urls_env = os.getenv("SCRAPE_URLS")
     if custom_urls_env:
         try:
@@ -229,6 +231,7 @@ def main():
     else:
         pages_to_scrape_used = pages_to_scrape
     client = openai.Client()
+    df_disciplines, df_schedules, df_prices = init_dataframes()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         for gym_name, site_url in pages_to_scrape_used.items():
@@ -244,8 +247,6 @@ def main():
                 page = browser.new_page()
                 try:
                     for sub_url in sub_urls:
-                        # if sub_url["loc"] != 'https://www.bioritmo.com.pe/horarios-treinos/santa-cruz':
-                        #     continue
                         extracted_data = scrape_single_url(client, page, sub_url, page_type, gym_name)
                         for url, chunk_data in extracted_data.items():
                             if chunk_data.get("horarios"):
@@ -257,9 +258,15 @@ def main():
                     page.close()
             merged_gym_data = merge_gym_data_with_llm(gym_name, chunked_data, client)
             merged_gym_data["horarios"] = schedules  # recuperar data de horarios
-            conn = get_connection()
-            bulk_insert(conn, gym_name, merged_gym_data)
+            logging.info(f"Merged data: {merged_gym_data}")
+            df_disciplines, df_schedules, df_prices = append_scraped_data(
+                df_disciplines, df_schedules, df_prices, gym_name, merged_gym_data
+            )
+            # conn = get_connection()
+            # bulk_insert(conn, gym_name, merged_gym_data)
         browser.close()
+        res = export_and_upload(df_disciplines, df_schedules, df_prices, folder_id)
+        print("Uploaded: ", res)
     logging.info("Scraping complete.")
 
 

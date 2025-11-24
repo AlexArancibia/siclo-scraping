@@ -138,6 +138,10 @@ Analizar el contenido HTML de la página de un gimnasio y extraer rigurosamente 
     - **Algunos gimnasios pueden tener precios diferentes por sede. Indicar claramente en el campo `sede` la tarifa extraída.
      Si no es el caso, colocar 'Todas' como sede.**
 
+6. **Disciplinas por sede:**
+    - Si es posible de inferir, separar las disciplinas enseñadas por sede. Puede ocurrir por ejemplo que la página "https://gym/sede-1" tenga listada 
+    3 disciplinas, asi que por el contexto deberían estar asignadas a la sede 1.
+
 6. **Búsqueda oportunista:**  
    Aunque `url_type` sirve como pista, debes escanear TODO el HTML en busca de datos relevantes para cada categoría.
 
@@ -520,9 +524,9 @@ Fusiona todas las entradas de distintas URLs en **un solo objeto JSON unificado*
 en una sola disciplina, creando una descripción unida de todos los duplicados encontrados.
 4. **Vinculación:** Asegura que cada precio tenga un campo `"sede"` coherente.
 5. **Idioma:** Devuelve todos los textos en español natural.
-6. **Trazabilidad:** No incluyas las URLs en la salida final.
+6. **Trazabilidad:** DEBES incluir la URL de referencia en cada elemento JSON, en el campo "fuente". En caso haya más de una URL que haga referencia a un mismo precio, sede u disciplina agrégalas como 
+elementos separados por comas
 7. **Localidad**: IMPORTANTE. combinar ubicaciones con descripciones similares en un solo registro. La dirección debe ser 
-lo más precisa posible (calle, número, distrito, ciudad). Asumir que no es probable que haya dos sedes en un mismo distrito o direcciones muy cercanas.
 lo más precisa posible (calle, número, distrito, ciudad). Asumir que no es probable que haya dos sedes en un mismo distrito o direcciones muy cercanas.
 
 ---
@@ -536,7 +540,9 @@ lo más precisa posible (calle, número, distrito, ciudad). Asumir que no es pro
     {{
       "content_para_busqueda": str,
       "direccion_completa": str,
-      "distrito": str
+      "distrito": str,
+      "horario_atencion": str,
+      "fuente": str
     }}
   ],
   "precios": [
@@ -546,26 +552,17 @@ lo más precisa posible (calle, número, distrito, ciudad). Asumir que no es pro
       "descripcion_plan": str,
       "valor": float,
       "moneda": str,
-      "recurrencia": str
-    }}
-  ],
-  "horarios": [
-    {{
-      "content_para_busqueda": str,
-      "sede": str,
-      "nombre_clase": str,
-      "instructor": str,
-      "fecha": str,
-      "dia_semana": str,
-      "hora_inicio": str,
-      "hora_fin": str
+      "recurrencia": str,
+      "fuente": str
     }}
   ],
   "disciplinas": [
     {{
       "content_para_busqueda": str,
+      "sede": str,
       "nombre": str,
-      "descripcion": str
+      "descripcion": str,
+      "fuente": str
     }}
   ]
 }}

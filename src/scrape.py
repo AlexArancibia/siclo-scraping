@@ -8,29 +8,29 @@ from playwright.sync_api import sync_playwright, Page
 from bs4 import BeautifulSoup
 
 from src.dataframes import init_dataframes, append_scraped_data, export_and_upload
-from src.sitemap_utils import get_filtered_sitemap_urls
+from src.sitemap_utils import get_filtered_sitemap_urls, get_all_links_from_homepage
 from src.db_utils import bulk_insert, get_connection, init_db
 from src.llm import categorize_urls_with_llm, extract_structured_data, merge_gym_data_with_llm
 
 pages_to_scrape = {
     "bioritmo": "https://www.bioritmo.com.pe/",
-    "limayoga": "https://limayoga.com/",
-    "nasceyoga": "https://www.nasceyoga.com/",
-    "zendayoga": "https://www.zendayoga.com/",
-    "matmax": "https://matmax.world/",
-    "anjali": "https://anjali.pe/",
-    "purepilatesperu": "https://www.purepilatesperu.com/",
-    "balancestudio": "https://balancestudio.pe/",
-    "curvaestudio": "https://curvaestudio.com/", # no robots.txt
-    "fitstudioperu": "https://fitstudioperu.com/",
-    "funcionalstudio": "https://www.funcionalstudio.pe/",
-    "pilatesesencia": "https://pilatesesencia.com/",
-    "twopilatesstudio": "https://twopilatesstudio.wixsite.com/twopilatesstudio", # no sitemap in robots.txt
-    "iliveko": "https://iliveko.com/", # no sitemap in robots.txt
-    "raise": "https://raise.pe/",
-    "shadow": "https://shadow.pe/", #  no sitemap in robots.txt
-    "elevatestudio": "https://elevatestudio.my.canva.site/", # no robots.txt
-    "boost-studio": "https://www.boost-studio.com/"
+    # "limayoga": "https://limayoga.com/",
+    # "nasceyoga": "https://www.nasceyoga.com/",
+    # "zendayoga": "https://www.zendayoga.com/",
+    # "matmax": "https://matmax.world/",
+    # "anjali": "https://anjali.pe/",
+    # "purepilatesperu": "https://www.purepilatesperu.com/",
+    # "balancestudio": "https://balancestudio.pe/",
+    # "curvaestudio": "https://curvaestudio.com/", # no robots.txt
+    # "fitstudioperu": "https://fitstudioperu.com/",
+    # "funcionalstudio": "https://www.funcionalstudio.pe/",  # can't parse sitemaps xml
+    # "pilatesesencia": "https://pilatesesencia.com/",
+    # "twopilatesstudio": "https://twopilatesstudio.wixsite.com/twopilatesstudio/", # no sitemap in robots.txt
+    # "iliveko": "https://iliveko.com/locales/pe/", # no sitemap in robots.txt
+    # "raise": "https://raise.pe/",
+    # "shadow": "https://shadow.pe/", #  no sitemap in robots.txt
+    # "elevatestudio": "https://elevatestudio.my.canva.site/", # no robots.txt
+    # "boost-studio": "https://www.boost-studio.com/"
 }
 
 
@@ -204,8 +204,8 @@ def scrape_single_url(client: openai.OpenAI, page: Page, url: dict[str, str], ur
 def main():
     if not os.getenv("OPENAI_API_KEY"):
         load_dotenv("../.env")  # local dev
-    with get_connection() as conn:
-        init_db(conn)
+    # with get_connection() as conn:
+    #     init_db(conn)
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
@@ -213,30 +213,32 @@ def main():
     )
     folder_id = os.getenv("FOLDER_ID")
     custom_urls_env = os.getenv("SCRAPE_URLS")
-    if custom_urls_env:
-        try:
-            # Ejemplo: "bioritmo:https://bioritmo.com/,zendayoga:https://zendayoga.com/"
-            pairs = [pair.strip() for pair in custom_urls_env.split(",") if pair.strip()]
-            pages_to_scrape_used = {}
-            for pair in pairs:
-                if ":" not in pair:
-                    logging.warning(f"⚠️ Invalid entry (missing colon): {pair}")
-                    continue
-                name, url = pair.split(":", 1)
-                pages_to_scrape_used[name.strip()] = url.strip()
-            logging.info(f"⚙️ Using URLs from environment: {pages_to_scrape}")
-        except Exception as e:
-            logging.warning(f"⚠️ Failed to parse SCRAPE_URLS: {e}")
-            pages_to_scrape_used = pages_to_scrape
-    else:
-        pages_to_scrape_used = pages_to_scrape
+    # if custom_urls_env:
+    #     try:
+    #         # Ejemplo: "bioritmo:https://bioritmo.com/,zendayoga:https://zendayoga.com/"
+    #         pairs = [pair.strip() for pair in custom_urls_env.split(",") if pair.strip()]
+    #         pages_to_scrape_used = {}
+    #         for pair in pairs:
+    #             if ":" not in pair:
+    #                 logging.warning(f"⚠️ Invalid entry (missing colon): {pair}")
+    #                 continue
+    #             name, url = pair.split(":", 1)
+    #             pages_to_scrape_used[name.strip()] = url.strip()
+    #         logging.info(f"⚙️ Using URLs from environment: {pages_to_scrape}")
+    #     except Exception as e:
+    #         logging.warning(f"⚠️ Failed to parse SCRAPE_URLS: {e}")
+    #         pages_to_scrape_used = pages_to_scrape
+    # else:
+    pages_to_scrape_used = pages_to_scrape
     client = openai.Client()
-    df_disciplines, df_schedules, df_prices = init_dataframes()
+    df_disciplines, df_places, df_schedules, df_prices = init_dataframes()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         for gym_name, site_url in pages_to_scrape_used.items():
             logging.info(f"Scraping {site_url}")
             urls_to_scrape = get_filtered_sitemap_urls(site_url)
+            if not urls_to_scrape:
+                urls_to_scrape = get_all_links_from_homepage(site_url, browser)
             schedules = []
             logging.info(f"URLs obtained: {urls_to_scrape}")
             filtered_urls = categorize_urls_with_llm(urls_to_scrape, client)
@@ -259,14 +261,14 @@ def main():
             merged_gym_data = merge_gym_data_with_llm(gym_name, chunked_data, client)
             merged_gym_data["horarios"] = schedules  # recuperar data de horarios
             logging.info(f"Merged data: {merged_gym_data}")
-            df_disciplines, df_schedules, df_prices = append_scraped_data(
-                df_disciplines, df_schedules, df_prices, gym_name, merged_gym_data
+            df_disciplines, df_places, df_schedules, df_prices = append_scraped_data(
+                df_disciplines, df_places, df_schedules, df_prices, gym_name, merged_gym_data
             )
             # conn = get_connection()
             # bulk_insert(conn, gym_name, merged_gym_data)
         browser.close()
         logging.info("Uploading data to Drive...")
-        res = export_and_upload(df_disciplines, df_schedules, df_prices, folder_id)
+        res = export_and_upload(df_disciplines, df_places, df_schedules, df_prices, folder_id)
         logging.info("Uploaded: ", res)
     logging.info("Scraping complete.")
 

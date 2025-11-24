@@ -4,6 +4,40 @@ import httpx
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse, urljoin
 
+from playwright.sync_api import Browser
+
+
+def get_all_links_from_homepage(base_url: str, browser: Browser) -> list[dict]:
+    unique_links = set()
+    base_url_clean = base_url.strip().rstrip('/')
+    page = browser.new_page()
+    logging.info(f"Crawling homepage direct links: {base_url}")
+    try:
+        page.goto(base_url, wait_until="domcontentloaded", timeout=60000)
+        hrefs = page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll('a')).map(a => a.href);
+                }""")
+        for href in hrefs:
+            if not href:
+                continue
+            if '#' in href:
+                href = href.split('#')[0]
+            href = href.strip().rstrip('/')
+            if href and base_url_clean in href:
+                if href == base_url_clean:
+                    continue
+                unique_links.add(href + "/")
+    except Exception as e:
+        logging.error(f"Error crawling homepage {base_url}: {e}")
+    finally:
+        page.close()
+
+    # Retornar en el formato list[dict] esperado por el resto del sistema
+    return [
+        {"loc": link, "lastmod": None, "changefreq": None, "priority": None}
+        for link in unique_links
+    ]
+
 
 def get_filtered_sitemap_urls(base_url: str) -> list[dict]:
     """

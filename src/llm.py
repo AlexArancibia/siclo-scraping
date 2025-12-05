@@ -6,6 +6,7 @@ import openai
 import json
 from typing import Any
 
+import tiktoken
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -159,6 +160,7 @@ Distingue **horarios de atención del establecimiento** (por ejemplo, "Lunes a V
 - Si se tiene la información disponible, colocar el campo `fecha` en formato DD-MM-YYYY. Puede aceptarse DD-MM. Si no es posible obtener una fecha exacta, dejar vacío.
 - Usa los campos **lastmod** y **changefreq** que se brindarán al final del contenido HTML, así como la fecha actual (formato DD-MM-YYYY), para poder inferir la fecha, de ser necesario.
 - Obtener la hora de fin a partir de la duración de la sesión si está disponible.
+- Evitar bajo cualquier concepto colocar solo la disciplina sin horarios
 ---
 
 ### 🧩 Esquemas Esperados
@@ -333,6 +335,11 @@ Analiza las siguientes entradas y genera el objeto JSON estructurado.
 ...
 ```
 """
+    has_schedule_info = detect_schedule(client, html_content)
+    enc = tiktoken.encoding_for_model("gpt-5-mini" if has_schedule_info else "gpt-5-nano")
+    tokens = enc.encode(html_content)
+    if len(tokens) > 6_000 and has_schedule_info:  # avoids reaching token limit if schedule data too large
+        html_content = html_content[:8_000] + "..."  # heuristic not to pass too big of a schedule info
     full_prompt = prompt_template.format(
         gym_name=gym_name,
         page_url=page_url,
@@ -342,13 +349,14 @@ Analiza las siguientes entradas y genera el objeto JSON estructurado.
         changefreq=freq,
         date=datetime.date.today().strftime("%A, %d-%m-%Y").capitalize()
     )
-    has_schedule_info = detect_schedule(client, html_content)
     if has_schedule_info:
         logging.info("Detected schedule info, calling larger model for extraction ...")
     try:
+        tokens = enc.encode(full_prompt)
+        logging.info(f"Processing {len(tokens)} tokens with {'gpt-5-mini' if has_schedule_info else 'gpt-5-nano'}...")
         logging.info(f"Calling OpenAI to extract data from {page_url}...")
         completion = client.chat.completions.create(
-            model="gpt-5-mini-2025-08-07" if has_schedule_info else "gpt-5-nano",
+            model="gpt-5-mini" if has_schedule_info else "gpt-5-nano",
             messages=[{"role": "user", "content": full_prompt}],
             # IMPORTANT: Use JSON mode to guarantee valid JSON output
             response_format={"type": "json_object"}
@@ -519,7 +527,9 @@ Cada página contiene datos parciales en formato JSON, con las claves:
 Fusiona todas las entradas de distintas URLs en **un solo objeto JSON unificado**, asegurando:
 
 1. **Integridad:** No pierdas información relevante de ningún fragmento.
-2. **Consistencia:** Unifica formato, tipos de datos y nombres de sedes.
+2. **Consistencia:** Unifica formato, tipos de datos y nombres de sedes. CONSIDERA EL CASO ESPECIFICO DE LIMA, PERU, Y SUS DISTRITOS DE SECTOR A-B. COMO SAN ISIDRO, SURCO, MIRAFLORES, 
+LA MOLINA. UNIFICA LAS SEDES EN BASE A ELLO. SI UNA DISCIPLINA SE REPITE EN TODAS LAS SEDES USAR "Todas" EN VEZ DE CREAR DOS RECORDS POR SEDE.
+COLOCA LAS REFERENCIAS A TODAS LAS SEDES (campo "sede" en horarios, precios, disciplinas) COMO DISTRITO, NO COMO CALLE.
 3. **Deduplicación:** Si varias URLs repiten la misma sede o dirección, mantenla solo una vez. IMPORTANTE: Múltiples urls pueden hablar de la misma disciplina, unificar 
 en una sola disciplina, creando una descripción unida de todos los duplicados encontrados.
 4. **Vinculación:** Asegura que cada precio tenga un campo `"sede"` coherente.
@@ -576,9 +586,12 @@ lo más precisa posible (calle, número, distrito, ciudad). Asumir que no es pro
     Devuelve solo el JSON final. No incluyas explicaciones ni comentarios.
     🚫 Importante: No devuelvas el JSON dentro de bloques de código ni uses comillas triples. Solo devuelve el objeto JSON plano.
     """
+    enc = tiktoken.encoding_for_model("gpt-5-mini")
+    tokens = enc.encode(prompt)
+    logging.info(f"Processing {len(tokens)} tokens with gpt-5-mini...")
     logging.info("Merging all gym scraped information ...")
     response = client.chat.completions.create(
-        model="gpt-5-nano",
+        model="gpt-5-mini",
         messages=[
             {"role": "system", "content": "Eres un asistente experto en fusión y deduplicación de datos JSON."},
             {"role": "user", "content": prompt},

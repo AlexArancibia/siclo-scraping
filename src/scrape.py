@@ -14,23 +14,23 @@ from src.llm import categorize_urls_with_llm, extract_structured_data, merge_gym
 
 pages_to_scrape = {
     "bioritmo": "https://www.bioritmo.com.pe/",
-    # "limayoga": "https://limayoga.com/",
-    # "nasceyoga": "https://www.nasceyoga.com/",
-    # "zendayoga": "https://www.zendayoga.com/",
-    # "matmax": "https://matmax.world/",
-    # "anjali": "https://anjali.pe/",
-    # "purepilatesperu": "https://www.purepilatesperu.com/",
-    # "balancestudio": "https://balancestudio.pe/",
-    # "curvaestudio": "https://curvaestudio.com/", # no robots.txt
-    # "fitstudioperu": "https://fitstudioperu.com/",
-    # "funcionalstudio": "https://www.funcionalstudio.pe/",  # can't parse sitemaps xml
-    # "pilatesesencia": "https://pilatesesencia.com/",
-    # "twopilatesstudio": "https://twopilatesstudio.wixsite.com/twopilatesstudio/", # no sitemap in robots.txt
-    # "iliveko": "https://iliveko.com/locales/pe/", # no sitemap in robots.txt
-    # "raise": "https://raise.pe/",
-    # "shadow": "https://shadow.pe/", #  no sitemap in robots.txt
-    # "elevatestudio": "https://elevatestudio.my.canva.site/", # no robots.txt
-    # "boost-studio": "https://www.boost-studio.com/"
+    "limayoga": "https://limayoga.com/",
+    "nasceyoga": "https://www.nasceyoga.com/",
+    "zendayoga": "https://www.zendayoga.com/",
+    "matmax": "https://matmax.world/",
+    "anjali": "https://anjali.pe/",
+    "purepilatesperu": "https://www.purepilatesperu.com/",
+    "balancestudio": "https://balancestudio.pe/",
+    "curvaestudio": "https://curvaestudio.com/", # no robots.txt
+    "fitstudioperu": "https://fitstudioperu.com/",
+    "funcionalstudio": "https://www.funcionalstudio.pe/",  # can't parse sitemaps xml
+    "pilatesesencia": "https://pilatesesencia.com/",
+    "twopilatesstudio": "https://twopilatesstudio.wixsite.com/twopilatesstudio/", # no sitemap in robots.txt
+    "iliveko": "https://iliveko.com/locales/pe/", # no sitemap in robots.txt
+    "raise": "https://raise.pe/",
+    "shadow": "https://shadow.pe/", #  no sitemap in robots.txt
+    "elevatestudio": "https://elevatestudio.my.canva.site/", # no robots.txt
+    "boost-studio": "https://www.boost-studio.com/"
 }
 
 
@@ -180,7 +180,8 @@ def scrape_single_url(client: openai.OpenAI, page: Page, url: dict[str, str], ur
                     page.goto(frame.url, wait_until="networkidle", timeout=45000)
                 except Exception:
                     page.goto(frame.url, wait_until="domcontentloaded", timeout=45000)
-                frame_html = page.content()
+                page.wait_for_timeout(10_000)  # wait for react / next.js hydration
+                frame_html = page.evaluate("document.documentElement.outerHTML")
                 pruned_frame_html = prune_html_for_llm(frame_html)
 
                 if pruned_frame_html.strip():
@@ -213,23 +214,23 @@ def main():
     )
     folder_id = os.getenv("FOLDER_ID")
     custom_urls_env = os.getenv("SCRAPE_URLS")
-    # if custom_urls_env:
-    #     try:
-    #         # Ejemplo: "bioritmo:https://bioritmo.com/,zendayoga:https://zendayoga.com/"
-    #         pairs = [pair.strip() for pair in custom_urls_env.split(",") if pair.strip()]
-    #         pages_to_scrape_used = {}
-    #         for pair in pairs:
-    #             if ":" not in pair:
-    #                 logging.warning(f"⚠️ Invalid entry (missing colon): {pair}")
-    #                 continue
-    #             name, url = pair.split(":", 1)
-    #             pages_to_scrape_used[name.strip()] = url.strip()
-    #         logging.info(f"⚙️ Using URLs from environment: {pages_to_scrape}")
-    #     except Exception as e:
-    #         logging.warning(f"⚠️ Failed to parse SCRAPE_URLS: {e}")
-    #         pages_to_scrape_used = pages_to_scrape
-    # else:
-    pages_to_scrape_used = pages_to_scrape
+    if custom_urls_env:
+        try:
+            # Ejemplo: "bioritmo:https://bioritmo.com/,zendayoga:https://zendayoga.com/"
+            pairs = [pair.strip() for pair in custom_urls_env.split(",") if pair.strip()]
+            pages_to_scrape_used = {}
+            for pair in pairs:
+                if ":" not in pair:
+                    logging.warning(f"⚠️ Invalid entry (missing colon): {pair}")
+                    continue
+                name, url = pair.split(":", 1)
+                pages_to_scrape_used[name.strip()] = url.strip()
+            logging.info(f"⚙️ Using URLs from environment: {pages_to_scrape}")
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to parse SCRAPE_URLS: {e}")
+            pages_to_scrape_used = pages_to_scrape
+    else:
+        pages_to_scrape_used = pages_to_scrape
     client = openai.Client()
     df_disciplines, df_places, df_schedules, df_prices = init_dataframes()
     with sync_playwright() as p:
@@ -249,6 +250,8 @@ def main():
                 page = browser.new_page()
                 try:
                     for sub_url in sub_urls:
+                        if "horarios-treinos/santa-cruz" in sub_url:
+                            print("Debug")
                         extracted_data = scrape_single_url(client, page, sub_url, page_type, gym_name)
                         for url, chunk_data in extracted_data.items():
                             if chunk_data.get("horarios"):
